@@ -4,7 +4,7 @@
   import BrandLogo from "$lib/components/BrandLogo.svelte"
   import { commands } from "$lib/bindings"
   import type { DepInstallEvent, DownloadTaskInfo, FullDependencyStatus, GlobalDownloadEvent } from "$lib/bindings"
-  import { invoke } from "@tauri-apps/api/core"
+  import { invoke, isTauri } from "@tauri-apps/api/core"
   import { listen } from "@tauri-apps/api/event"
   import { platform } from "@tauri-apps/plugin-os"
   import { page } from "$app/stores"
@@ -81,6 +81,7 @@
   // Welcome (first-run) state
   type DepMode = "hybrid" | "bundled"
   let setupCompleted = $state<boolean | null>(null) // null = loading
+  let browserPreview = $state(false)
   let selectedDepMode = $state<DepMode>("bundled")
 
   // Debug command menu state (F9)
@@ -167,6 +168,8 @@
 
   const navItems = [
     { href: "/tools/ytdlp", icon: "download", labelKey: "nav.downloader", exact: true },
+    { href: "/tools/ytdlp/spotify", logo: "/spotify-mark.svg", label: "Spotify" },
+    { href: "/tools/ytdlp/deezer", logo: "/deezer-mark.svg", label: "Deezer" },
     { href: "/tools/ytdlp/queue", icon: "toc", labelKey: "nav.queueHistory" }, // explicit queue page link
     { href: "/tools/ytdlp/logs", icon: "terminal", labelKey: "nav.logs" },
     { href: "/tools/ytdlp/settings", icon: "settings", labelKey: "nav.settings" },
@@ -290,6 +293,12 @@
   }
 
   onMount(async () => {
+    if (import.meta.env.DEV && !isTauri()) {
+      browserPreview = true
+      setupCompleted = true
+      checking = false
+      return
+    }
     try { appVersion = await getVersion() } catch { /* Keep the name visible if native metadata is unavailable. */ }
     // Detect OS platform
     try {
@@ -745,8 +754,13 @@
               ? 'bg-yt-highlight text-yt-text shadow-sm ring-1 ring-inset ring-yt-border' 
               : 'text-yt-text-secondary hover:bg-yt-overlay hover:text-yt-text'}"
         >
-          <span class="material-symbols-outlined text-[20px] {isActive(item.href, item.exact) ? 'text-yt-primary' : ''}">{item.icon}</span>
-          <span>{t(item.labelKey)}</span>
+          {#if item.logo}
+            <img src={item.logo} alt="" class="size-5" />
+            <span>{item.label}</span>
+          {:else if item.labelKey}
+            <span class="material-symbols-outlined text-[20px] {isActive(item.href, item.exact) ? 'text-yt-primary' : ''}">{item.icon}</span>
+            <span>{t(item.labelKey)}</span>
+          {/if}
           {#if item.href === "/tools/ytdlp/queue" && (activeCount + pendingCount + failedCount) > 0}
             <span class="absolute right-2 w-2 h-2 {(activeCount + pendingCount) > 0 ? 'bg-yt-primary' : 'bg-yt-error'} rounded-full ring-2 ring-yt-surface animate-pulse"></span>
           {/if}
@@ -900,7 +914,7 @@
           <p class="text-sm text-yt-text-secondary">{t("layout.checkingDeps")}</p>
         </div>
       </div>
-    {:else if !depsInstalled}
+    {:else if !depsInstalled && !browserPreview}
       <div class="flex-1 flex flex-col items-center justify-center p-8 overflow-y-auto">
         <div class="max-w-xl w-full flex flex-col items-center gap-6">
            <div class="w-16 h-16 rounded-2xl bg-yt-surface border border-yt-border flex items-center justify-center shadow-sm">

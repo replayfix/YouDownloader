@@ -1,5 +1,6 @@
 pub mod portable;
 pub mod portable_updater;
+mod spotify;
 mod ytdlp;
 
 #[cfg(debug_assertions)]
@@ -26,6 +27,7 @@ pub fn run() {
         .commands(collect_commands![
             portable_updater::get_update_mode,
             portable_updater::install_portable_update,
+            spotify::download_spotify_playlist,
             ytdlp::commands::check_dependencies,
             ytdlp::commands::update_ytdlp,
             ytdlp::commands::get_download_queue,
