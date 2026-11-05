@@ -1,3 +1,4 @@
+mod deezer;
 pub mod portable;
 pub mod portable_updater;
 mod spotify;
@@ -28,6 +29,9 @@ pub fn run() {
             portable_updater::get_update_mode,
             portable_updater::install_portable_update,
             spotify::download_spotify_playlist,
+            spotify::load_spotify_tracks,
+            deezer::load_deezer_playlist,
+            deezer::download_deezer_playlist,
             ytdlp::commands::check_dependencies,
             ytdlp::commands::update_ytdlp,
             ytdlp::commands::get_download_queue,

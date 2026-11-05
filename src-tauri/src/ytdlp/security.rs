@@ -167,7 +167,7 @@ fn is_blocked_v4(v4: std::net::Ipv4Addr) -> bool {
 /// NUL, COM1-9, LPT1-9). Windows compares against the stem before the first
 /// dot, case-insensitively — so "con.mp4" is reserved too. COM0/LPT0 and
 /// COM10+ are not reserved.
-fn is_windows_reserved_name(name: &str) -> bool {
+pub(crate) fn is_windows_reserved_name(name: &str) -> bool {
     let stem = name.split('.').next().unwrap_or("").trim();
     let upper = stem.to_ascii_uppercase();
     matches!(upper.as_str(), "CON" | "PRN" | "AUX" | "NUL")

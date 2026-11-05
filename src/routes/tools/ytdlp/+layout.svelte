@@ -5,6 +5,7 @@
   import { commands } from "$lib/bindings"
   import type { DepInstallEvent, DownloadTaskInfo, FullDependencyStatus, GlobalDownloadEvent } from "$lib/bindings"
   import { invoke, isTauri } from "@tauri-apps/api/core"
+  import { deezerProgress, spotifyProgress } from "$lib/spotify-progress"
   import { listen } from "@tauri-apps/api/event"
   import { platform } from "@tauri-apps/plugin-os"
   import { page } from "$app/stores"
@@ -791,8 +792,8 @@
         <div class="flex items-center gap-2.5">
           <div class="relative">
              <span class="material-symbols-outlined text-yt-text-secondary group-hover:text-yt-text text-[20px]">downloading</span>
-             {#if (activeCount + pendingCount + failedCount) > 0}
-              <span class="absolute -top-1 -right-1 w-2.5 h-2.5 {(activeCount + pendingCount) > 0 ? 'bg-yt-primary' : 'bg-yt-error'} rounded-full ring-2 ring-yt-surface"></span>
+             {#if $spotifyProgress !== null || $deezerProgress !== null || (activeCount + pendingCount + failedCount) > 0}
+              <span class="absolute -top-1 -right-1 w-2.5 h-2.5 {$spotifyProgress !== null || $deezerProgress !== null || (activeCount + pendingCount) > 0 ? 'bg-yt-primary' : 'bg-yt-error'} rounded-full ring-2 ring-yt-surface"></span>
              {/if}
           </div>
           <div class="text-left">
@@ -802,6 +803,10 @@
                 {t("layout.downloading", { count: activeCount })} · {overallProgress}%
               {:else if pendingCount > 0}
                 {t("layout.queuedCount", { count: pendingCount })}
+              {:else if $spotifyProgress !== null}
+                Spotify · En curso
+              {:else if $deezerProgress !== null}
+                Deezer · En curso
               {:else}
                 {t("layout.idle")}
               {/if}
@@ -1101,7 +1106,19 @@
       </div>
 
       <div class="flex-1 overflow-y-auto hide-scrollbar p-2 space-y-2">
-        {#if activeDownloads.length === 0 && recentCompleted.length === 0 && failedCount === 0}
+        {#if $spotifyProgress !== null}
+          <div class="rounded border border-yt-border bg-yt-bg p-2.5">
+            <p class="text-xs font-semibold text-yt-text">Spotify</p>
+            <p class="break-words text-xs text-yt-text-secondary">{$spotifyProgress}</p>
+          </div>
+        {/if}
+        {#if $deezerProgress !== null}
+          <div class="rounded border border-yt-border bg-yt-bg p-2.5">
+            <p class="text-xs font-semibold text-yt-text">Deezer</p>
+            <p class="break-words text-xs text-yt-text-secondary">{$deezerProgress}</p>
+          </div>
+        {/if}
+        {#if $spotifyProgress === null && $deezerProgress === null && activeDownloads.length === 0 && recentCompleted.length === 0 && failedCount === 0}
            <div class="py-8 text-center">
              <p class="text-xs text-yt-text-muted">{t("layout.noActiveDownloads")}</p>
            </div>
