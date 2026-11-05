@@ -193,6 +193,7 @@ pub struct SpotifyTrack {
     id: String,
     title: String,
     artist: String,
+    duration_seconds: Option<u32>,
 }
 
 #[tauri::command]
@@ -233,6 +234,9 @@ pub async fn load_spotify_tracks(playlist_id: String) -> Result<Vec<SpotifyTrack
                 id: id.into(),
                 title: track["title"].as_str()?.into(),
                 artist: track["subtitle"].as_str().unwrap_or_default().into(),
+                duration_seconds: track["duration"]
+                    .as_u64()
+                    .and_then(|milliseconds| u32::try_from(milliseconds / 1000).ok()),
             })
         })
         .collect())

@@ -7,8 +7,74 @@ static DEEZER_DOWNLOAD: Mutex<()> = Mutex::const_new(());
 
 #[derive(serde::Serialize, specta::Type)]
 pub struct DeezerPlaylist {
+    id: String,
     title: String,
     tracks: Vec<DeezerTrack>,
+}
+
+fn valid_playlist_id(id: &str) -> bool {
+    !id.is_empty() && id.len() <= 20 && id.bytes().all(|byte| byte.is_ascii_digit())
+}
+
+fn deezer_host(url: &reqwest::Url) -> bool {
+    url.scheme() == "https"
+        && url.port().is_none()
+        && url.username().is_empty()
+        && url.password().is_none()
+        && matches!(
+            url.host_str(),
+            Some(
+                "deezer.com"
+                    | "www.deezer.com"
+                    | "link.deezer.com"
+                    | "deezer.page.link"
+                    | "dzr.page.link"
+            )
+        )
+}
+
+fn playlist_id_from_url(url: &reqwest::Url) -> Option<&str> {
+    if !matches!(url.host_str(), Some("deezer.com" | "www.deezer.com")) {
+        return None;
+    }
+    let mut segments = url.path().trim_end_matches('/').rsplit('/');
+    let id = segments.next()?;
+    (valid_playlist_id(id) && segments.next() == Some("playlist")).then_some(id)
+}
+
+async fn resolve_playlist_id(input: &str) -> Result<String, String> {
+    let input = input.trim();
+    if valid_playlist_id(input) {
+        return Ok(input.into());
+    }
+    let error = "Pega el enlace de una playlist pública de Deezer.";
+    let url = reqwest::Url::parse(input).map_err(|_| error)?;
+    if !deezer_host(&url) {
+        return Err(error.into());
+    }
+    if let Some(id) = playlist_id_from_url(&url) {
+        return Ok(id.into());
+    }
+    if matches!(url.host_str(), Some("deezer.com" | "www.deezer.com")) {
+        return Err(error.into());
+    }
+
+    let error = "No se pudo abrir el enlace corto. Prueba con la URL de la playlist en Deezer.";
+    let client = reqwest::Client::builder()
+        .timeout(std::time::Duration::from_secs(12))
+        .redirect(reqwest::redirect::Policy::custom(|attempt| {
+            if deezer_host(attempt.url()) && attempt.previous().len() < 6 {
+                attempt.follow()
+            } else {
+                attempt.stop()
+            }
+        }))
+        .build()
+        .map_err(|_| error)?;
+    let response = client.get(url).send().await.map_err(|_| error)?;
+    playlist_id_from_url(response.url())
+        .map(str::to_owned)
+        .ok_or_else(|| error.to_owned())
 }
 
 #[derive(serde::Serialize, specta::Type)]
@@ -38,12 +104,7 @@ async fn deezer_request(path: &str) -> Result<serde_json::Value, String> {
 #[tauri::command]
 #[specta::specta]
 pub async fn load_deezer_playlist(playlist_id: String) -> Result<DeezerPlaylist, String> {
-    if playlist_id.is_empty()
-        || playlist_id.len() > 20
-        || !playlist_id.bytes().all(|byte| byte.is_ascii_digit())
-    {
-        return Err("El identificador de la playlist de Deezer no es válido.".into());
-    }
+    let playlist_id = resolve_playlist_id(&playlist_id).await?;
     let path = format!("playlist/{playlist_id}");
     let metadata = deezer_request(&path).await?;
     let title = metadata["title"]
@@ -69,7 +130,11 @@ pub async fn load_deezer_playlist(playlist_id: String) -> Result<DeezerPlaylist,
         }
         index += items.len();
     }
-    Ok(DeezerPlaylist { title, tracks })
+    Ok(DeezerPlaylist {
+        id: playlist_id,
+        title,
+        tracks,
+    })
 }
 
 #[tauri::command]
@@ -84,7 +149,7 @@ pub async fn download_deezer_playlist(
         .try_lock()
         .map_err(|_| "Ya hay una descarga de Deezer en curso.".to_string())?;
     let _ = progress.send("Consultando la playlist de Deezer…".into());
-    let playlist = load_deezer_playlist(playlist_id.clone()).await?;
+    let playlist = load_deezer_playlist(playlist_id).await?;
     let tracks: Vec<_> = playlist
         .tracks
         .into_iter()
@@ -114,7 +179,7 @@ pub async fn download_deezer_playlist(
         .map_err(|error| error.to_string())?;
     let folder = PathBuf::from(root).join(crate::spotify::playlist_folder_name(
         Some(&playlist.title),
-        &playlist_id,
+        &playlist.id,
     ));
     tokio::fs::create_dir_all(&folder)
         .await

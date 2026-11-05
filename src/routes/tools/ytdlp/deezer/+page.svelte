@@ -16,24 +16,25 @@
 
   async function loadPlaylist() {
     const generation = ++loadGeneration
-    const id = /^https:\/\/(?:www\.)?deezer\.com\/(?:[a-z]{2}\/)?playlist\/([0-9]{1,20})\/?(?:[?#].*)?$/i.exec(input.trim())?.[1] ?? null
-    playlistId = id
+    const link = input.trim()
+    playlistId = null
     title = ""
     tracks = []
     tracksMessage = ""
-    message = id ? "" : "Pega un enlace de playlist pública de deezer.com."
-    if (!id) return
+    message = link ? "" : "Pega el enlace de una playlist pública de Deezer."
+    if (!link) return
 
     tracksMessage = "Cargando canciones…"
     try {
-      const result = await invoke<{ title: string; tracks: DeezerTrack[] }>("load_deezer_playlist", { playlistId: id })
+      const result = await invoke<{ id: string; title: string; tracks: DeezerTrack[] }>("load_deezer_playlist", { playlistId: link })
       if (generation !== loadGeneration) return
       title = result.title
+      playlistId = result.id
       tracks = result.tracks
       tracksMessage = tracks.length ? "" : "Deezer no mostró canciones disponibles."
-    } catch {
+    } catch (error) {
       if (generation === loadGeneration) {
-        tracksMessage = "No se pudo cargar la lista. Comprueba que sea pública."
+        tracksMessage = typeof error === "string" ? error : "No se pudo cargar la lista de Deezer."
       }
     }
   }
@@ -91,6 +92,9 @@
   </form>
 
   <p role="status" class="break-words text-sm text-yt-text-secondary">{$deezerProgress ?? message}</p>
+  {#if tracksMessage}
+    <p role="status" class="text-sm text-yt-text-secondary">{tracksMessage}</p>
+  {/if}
 
   {#if playlistId}
     {#if title}<h3 class="font-semibold text-yt-text">{title}</h3>{/if}
@@ -99,7 +103,6 @@
         Descargar todo en MP3
       </button>
     </div>
-    <p class="text-sm text-yt-text-secondary" role="status">{tracksMessage}</p>
     {#if tracks.length}
       <h3 class="text-sm font-semibold text-yt-text">Canciones disponibles para descarga individual</h3>
       <ol class="divide-y divide-yt-border rounded-lg border border-yt-border">

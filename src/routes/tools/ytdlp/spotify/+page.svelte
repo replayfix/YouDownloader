@@ -5,7 +5,12 @@
   import { spotifyProgress } from "$lib/spotify-progress"
   import { spotifyPlaylistId } from "$lib/utils/spotify-playlist.js"
 
-  type SpotifyTrack = { id: string; title: string; artist: string }
+  type SpotifyTrack = { id: string; title: string; artist: string; duration_seconds?: number | null }
+
+  function formatDuration(seconds?: number | null) {
+    if (seconds == null) return "—"
+    return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
+  }
 
   let input = $state("")
   let playlistId = $state<string | null>(null)
@@ -117,34 +122,37 @@
     </div>
     <p class="text-sm text-yt-text-secondary" role="status">{tracksMessage}</p>
     {#if tracks.length}
-      <h3 class="text-sm font-semibold text-yt-text">Canciones disponibles para descarga individual</h3>
-      <ol class="divide-y divide-yt-border rounded-lg border border-yt-border">
-        {#each tracks as track}
-          <li class="flex items-center justify-between gap-3 px-3 py-2">
+      <h3 class="text-sm font-semibold text-yt-text">Canciones disponibles · {tracks.length}</h3>
+      <div class="overflow-hidden rounded-lg border border-yt-border">
+        <div aria-hidden="true" class="grid grid-cols-[1.5rem_minmax(0,1fr)_3rem_6.5rem] gap-2 border-b border-yt-border bg-yt-surface px-3 py-2 text-xs font-medium text-yt-text-secondary">
+          <span class="text-center">#</span>
+          <span>Canción</span>
+          <span class="text-right">Tiempo</span>
+          <span class="text-center">MP3</span>
+        </div>
+      <ol class="divide-y divide-yt-border">
+        {#each tracks as track, index}
+          <li class="grid grid-cols-[1.5rem_minmax(0,1fr)_3rem_6.5rem] items-center gap-2 px-3 py-2 hover:bg-yt-highlight">
+            <span aria-hidden="true" class="text-center text-xs tabular-nums text-yt-text-muted">{index + 1}</span>
             <div class="min-w-0 break-words">
               <p class="font-medium text-yt-text">{track.title}</p>
               <p class="text-sm text-yt-text-secondary">{track.artist}</p>
             </div>
+            <span class="text-right text-xs tabular-nums text-yt-text-secondary">{formatDuration(track.duration_seconds)}</span>
             <button
               type="button"
               disabled={downloading}
               aria-label={`Descargar ${track.title} en MP3`}
               onclick={() => downloadPlaylist(track)}
-              class="shrink-0 rounded-lg border border-yt-border px-3 py-2 text-sm disabled:opacity-50"
+              class="rounded-md bg-green-400 px-2 py-2 text-sm font-semibold text-green-950 hover:bg-green-300 disabled:opacity-50"
             >
               Descargar
             </button>
           </li>
         {/each}
       </ol>
+      </div>
     {/if}
-    <iframe
-      title="Playlist de Spotify"
-      src={`https://open.spotify.com/embed/playlist/${playlistId}`}
-      height="480"
-      class="w-full rounded-xl border-0"
-      allow="autoplay; encrypted-media; fullscreen; picture-in-picture"
-    ></iframe>
     <p class="text-sm text-yt-text-secondary">El audio se busca en YouTube Music. Algunas coincidencias pueden corresponder a otra versión de la canción.</p>
   {/if}
 </section>
