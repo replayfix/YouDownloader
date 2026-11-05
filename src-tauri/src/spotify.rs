@@ -21,7 +21,9 @@ pub async fn download_spotify_playlist(app: AppHandle, playlist_id: String) -> R
         .join("spotify-dl")
         .join("spotify-dl.exe");
     if !cfg!(target_os = "windows") || !executable.is_file() {
-        return Err("Esta edición no incluye spotify-dl. Usa la edición portable de Windows.".into());
+        return Err(
+            "Esta edición no incluye spotify-dl. Usa la edición portable de Windows.".into(),
+        );
     }
     let ffmpeg = crate::ytdlp::binary::resolve_ffmpeg_path_with_app(&app)
         .await
