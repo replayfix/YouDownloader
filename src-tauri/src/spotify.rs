@@ -270,9 +270,7 @@ pub async fn load_spotify_tracks(playlist_id: String) -> Result<SpotifyPlaylist,
         .or_else(|| entity["name"].as_str())
         .unwrap_or("Playlist de Spotify")
         .to_owned();
-    let tracks = entity["trackList"]
-        .and_then(serde_json::Value::as_array)
-        .ok_or(error)?;
+    let tracks = entity["trackList"].as_array().ok_or(error)?;
     let tracks = tracks
         .iter()
         .filter_map(|track| {
