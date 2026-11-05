@@ -1,23 +1,29 @@
+<script module lang="ts">
+  type SpotifyTrack = { id: string; title: string; artist: string; duration_seconds?: number | null }
+  let input = $state("")
+  let playlistId = $state<string | null>(null)
+  let message = $state("")
+  let tracks = $state<SpotifyTrack[]>([])
+  let tracksMessage = $state("")
+  let selectedIds = $state<string[]>([])
+  let selectWholePlaylist = $state(false)
+  let loadGeneration = 0
+</script>
+
 <script lang="ts">
   import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager"
   import { openUrl } from "@tauri-apps/plugin-opener"
+  import TrackToggle from "$lib/components/TrackToggle.svelte"
   import { Channel, invoke } from "@tauri-apps/api/core"
   import { spotifyProgress } from "$lib/spotify-progress"
   import { spotifyPlaylistId } from "$lib/utils/spotify-playlist.js"
 
-  type SpotifyTrack = { id: string; title: string; artist: string; duration_seconds?: number | null }
 
   function formatDuration(seconds?: number | null) {
     if (seconds == null) return "—"
     return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
   }
 
-  let input = $state("")
-  let playlistId = $state<string | null>(null)
-  let message = $state("")
-  let tracks = $state<SpotifyTrack[]>([])
-  let tracksMessage = $state("")
-  let loadGeneration = 0
   let downloading = $derived($spotifyProgress !== null)
   let playlistUrl = $derived(playlistId ? `https://open.spotify.com/playlist/${playlistId}` : "")
 
@@ -26,6 +32,8 @@
     const id = spotifyPlaylistId(input)
     playlistId = id
     tracks = []
+    selectedIds = []
+    selectWholePlaylist = false
     tracksMessage = ""
     message = id ? "" : "Pega un enlace de playlist de open.spotify.com."
     if (!id) return
@@ -52,16 +60,28 @@
     }
   }
 
-  async function downloadPlaylist(track?: SpotifyTrack) {
-    if (!playlistId || downloading) return
-    message = track ? `Buscando: ${track.title}…` : "Buscando las pistas en YouTube Music y descargando en MP3…"
+  function toggleAll() {
+    selectWholePlaylist = !selectWholePlaylist
+    selectedIds = selectWholePlaylist ? [...new Set(tracks.map((track) => track.id))] : []
+  }
+
+  function toggleTrack(id: string) {
+    selectWholePlaylist = false
+    selectedIds = selectedIds.includes(id)
+      ? selectedIds.filter((selected) => selected !== id)
+      : [...selectedIds, id]
+  }
+
+  async function downloadPlaylist() {
+    if (!playlistId || downloading || (!selectWholePlaylist && !selectedIds.length)) return
+    message = "Buscando las pistas en YouTube Music y descargando en MP3…"
     spotifyProgress.set(message)
     const progress = new Channel<string>()
     progress.onmessage = (status) => spotifyProgress.set(status)
     try {
       const folder = await invoke<string>("download_spotify_playlist", {
         playlistId,
-        trackId: track?.id ?? null,
+        trackIds: selectWholePlaylist ? null : [...selectedIds],
         progress,
       })
       message = `Proceso finalizado. Carpeta: ${folder}`
@@ -75,7 +95,6 @@
   async function openDownloader() {
     try {
       await writeText(playlistUrl)
-      message = "URL copiada. Pégala en SpotSaver para continuar."
     } catch {
       message = "Copia manualmente el enlace de la playlist para pegarlo en SpotSaver."
     }
@@ -113,8 +132,12 @@
 
   {#if playlistId}
     <div class="flex flex-wrap gap-2">
-      <button type="button" disabled={downloading} onclick={() => downloadPlaylist()} class="rounded-lg bg-yt-primary px-4 py-2 text-white disabled:opacity-50">
-        Descargar todo en MP3
+      <label class="flex items-center gap-2 text-sm text-yt-text">
+        <TrackToggle checked={selectWholePlaylist} label="Seleccionar toda la playlist" disabled={downloading} onchange={toggleAll} />
+        Seleccionar todo
+      </label>
+      <button type="button" disabled={downloading || (!selectWholePlaylist && !selectedIds.length)} onclick={downloadPlaylist} class="rounded-lg bg-yt-primary px-4 py-2 font-medium text-white disabled:opacity-50">
+        Descargar en MP3
       </button>
       <button type="button" disabled={downloading} onclick={openDownloader} class="rounded-lg border border-yt-border px-4 py-2">
         Copiar URL y abrir SpotSaver
@@ -128,7 +151,7 @@
           <span class="text-center">#</span>
           <span>Canción</span>
           <span class="text-right">Tiempo</span>
-          <span class="text-center">MP3</span>
+          <span class="text-center">Elegir</span>
         </div>
       <ol class="divide-y divide-yt-border">
         {#each tracks as track, index}
@@ -139,15 +162,14 @@
               <p class="text-sm text-yt-text-secondary">{track.artist}</p>
             </div>
             <span class="text-right text-xs tabular-nums text-yt-text-secondary">{formatDuration(track.duration_seconds)}</span>
-            <button
-              type="button"
-              disabled={downloading}
-              aria-label={`Descargar ${track.title} en MP3`}
-              onclick={() => downloadPlaylist(track)}
-              class="rounded-md bg-green-400 px-2 py-2 text-sm font-semibold text-green-950 hover:bg-green-300 disabled:opacity-50"
-            >
-              Descargar
-            </button>
+            <div class="flex justify-center">
+              <TrackToggle
+                checked={selectedIds.includes(track.id)}
+                label={`Seleccionar ${track.title}`}
+                disabled={downloading}
+                onchange={() => toggleTrack(track.id)}
+              />
+            </div>
           </li>
         {/each}
       </ol>

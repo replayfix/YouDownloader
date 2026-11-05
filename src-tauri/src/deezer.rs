@@ -142,7 +142,7 @@ pub async fn load_deezer_playlist(playlist_id: String) -> Result<DeezerPlaylist,
 pub async fn download_deezer_playlist(
     app: AppHandle,
     playlist_id: String,
-    track_id: Option<String>,
+    track_ids: Option<Vec<String>>,
     progress: Channel<String>,
 ) -> Result<String, String> {
     let _download = DEEZER_DOWNLOAD
@@ -153,8 +153,8 @@ pub async fn download_deezer_playlist(
     let tracks: Vec<_> = playlist
         .tracks
         .into_iter()
-        .filter(|track| track_id.as_ref().is_none_or(|id| id == &track.id))
-        .take(if track_id.is_some() { 1 } else { usize::MAX })
+        .filter(|track| track_ids.as_ref().is_none_or(|ids| ids.contains(&track.id)))
+        .map(|track| (track.title, track.artist))
         .collect();
     if tracks.is_empty() {
         return Err("No hay canciones disponibles para descargar.".into());
@@ -185,36 +185,14 @@ pub async fn download_deezer_playlist(
         .await
         .map_err(|error| error.to_string())?;
 
-    let total = tracks.len();
-    let mut failed = 0;
-    for (index, track) in tracks.into_iter().enumerate() {
-        let _ = progress.send(format!(
-            "{}/{} · Buscando: {} · {}",
-            index + 1,
-            total,
-            track.title,
-            track.artist
-        ));
-        let mut command = crate::spotify::audio_search_command(
-            &ytdlp,
-            &track.title,
-            &track.artist,
-            ".deezer-archive.txt",
-        );
-        if let Err(error) =
-            crate::spotify::run_music_download(&mut command, &folder, &search_path, &progress).await
-        {
-            if total == 1 {
-                return Err(error);
-            }
-            failed += 1;
-        }
-    }
-    if failed > 0 {
-        return Err(format!(
-            "No se pudieron descargar {failed} de {total} canciones. Carpeta: {}",
-            folder.display()
-        ));
-    }
+    crate::spotify::download_music_tracks(
+        tracks,
+        &ytdlp,
+        ".deezer-archive.txt",
+        &folder,
+        &search_path,
+        &progress,
+    )
+    .await?;
     Ok(folder.to_string_lossy().into_owned())
 }

@@ -1,4 +1,18 @@
 <script module lang="ts">
+  import type { QuickMetadata, VideoInfo } from "$lib/bindings"
+  import type { PlaylistView } from "$lib/ytdlp/download-page"
+
+  let lastSearch: {
+    url: string
+    videoInfo: VideoInfo | null
+    quickInfo: QuickMetadata | null
+    playlistResult: PlaylistView | null
+    error: string | null
+    errorKey: string | null
+    selectedEntries: Set<string>
+    analyzedUrl: string
+  } | undefined
+
   // Scan ids must stay unique across page remounts and webview reloads: a delayed terminal
   // event from a killed scan must never match a new scan's id (the backend's scan_id is a
   // u32, so never seed from Date.now()). Module scope survives remounts; the random seed
@@ -8,7 +22,7 @@
 
 <script lang="ts">
   import { page } from "$app/stores"
-  import { commands, type AppSettings, type DownloadRequest, type PlaylistScanEvent, type DuplicateCheckResult, type QuickMetadata, type AdvancedOptions, type VideoInfo } from "$lib/bindings"
+  import { commands, type AppSettings, type DownloadRequest, type PlaylistScanEvent, type DuplicateCheckResult, type AdvancedOptions } from "$lib/bindings"
   import {
     defaultAdvancedOptions,
     validateAdvancedField,
@@ -35,20 +49,21 @@
     type BatchProgress,
     type DownloadFormat,
     type PlaylistDownloadEntry,
-    type PlaylistView,
     type SkippedDetails,
   } from "$lib/ytdlp/download-page"
 
   // URL & analyze state
-  let url = $state("")
+  let url = $state(lastSearch?.url ?? "")
+  let analyzedUrl = lastSearch?.analyzedUrl ?? ""
+  let restoredUrl = analyzedUrl
   let analyzing = $state(false)
-  let videoInfo = $state<VideoInfo | null>(null)
-  let quickInfo = $state<QuickMetadata | null>(null)
+  let videoInfo = $state<VideoInfo | null>(lastSearch?.videoInfo ?? null)
+  let quickInfo = $state<QuickMetadata | null>(lastSearch?.quickInfo ?? null)
   let loadingFormats = $state(false)
-  let error = $state<string | null>(null)
+  let error = $state<string | null>(lastSearch?.error ?? null)
   // The raw i18n key behind `error`, so the banner can offer a contextual fix (e.g. jump to the
   // cookie-browser picker for auth-related failures).
-  let errorKey = $state<string | null>(null)
+  let errorKey = $state<string | null>(lastSearch?.errorKey ?? null)
 
   const COOKIE_ERROR_KEYS = ["error.ageRestricted", "error.cookieAccess", "error.siteBlocked", "error.botCheck"]
   const showCookieHint = $derived(errorKey != null && COOKIE_ERROR_KEYS.includes(errorKey))
@@ -70,7 +85,7 @@
       focusCookiePicker()
     }
   })
-  let playlistResult = $state<PlaylistView | null>(null)
+  let playlistResult = $state<PlaylistView | null>(lastSearch?.playlistResult ?? null)
   // Streaming playlist scan state. The scan id is generated client-side (monotonic counter)
   // and set BEFORE invoking startPlaylistScan, so the first "entries" event can never beat
   // the handler's id check even when it arrives before the invoke ack.
@@ -117,7 +132,7 @@
   let preparingDownload = $state(false)
 
   // Multi-select state
-  let selectedEntries = $state<Set<string>>(new Set())
+  let selectedEntries = $state<Set<string>>(new Set(lastSearch?.selectedEntries))
   let allSelected = $derived(
     playlistResult ? selectedEntries.size === playlistResult.entries.length && playlistResult.entries.length > 0 : false
   )
@@ -223,6 +238,8 @@
 
   $effect(() => {
     const currentUrl = url // Only tracked dependency
+    const alreadyRestored = currentUrl.trim() === restoredUrl
+    restoredUrl = ""
     clearAnalyzeDebounce()
     // A duplicate warning belongs to a specific URL; once the user edits the field it no longer
     // matches what's on screen, so drop it (and its captured request) right away. untrack keeps
@@ -234,7 +251,7 @@
         pendingRequest = null
       }
     })
-    if (looksLikeVideoUrl(currentUrl)) {
+    if (!alreadyRestored && looksLikeVideoUrl(currentUrl)) {
       analyzeTimeoutId = setTimeout(() => {
         // Don't gate on `analyzing`: if a previous fetch is still in flight, handleAnalyze bumps
         // analyzeGeneration to supersede it, so the newest URL always wins. Gating on analyzing
@@ -263,6 +280,16 @@
   })
 
   onDestroy(() => {
+    lastSearch = {
+      url,
+      videoInfo: $state.snapshot(videoInfo),
+      quickInfo: $state.snapshot(quickInfo),
+      playlistResult: $state.snapshot(playlistResult),
+      error,
+      errorKey,
+      selectedEntries: new Set(selectedEntries),
+      analyzedUrl: analyzing || scanning || loadingFormats ? "" : analyzedUrl,
+    }
     stopAnalyzeTimer()
     unlistenScan?.()
     unlistenScan = null
@@ -493,6 +520,7 @@
   }
 
   async function runAnalyze(requestedUrl: string) {
+    analyzedUrl = requestedUrl
     analyzing = true
     error = null
     errorKey = null

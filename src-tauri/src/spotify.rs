@@ -12,7 +12,7 @@ static SPOTIFY_DOWNLOAD: Mutex<()> = Mutex::const_new(());
 pub async fn download_spotify_playlist(
     app: AppHandle,
     playlist_id: String,
-    track_id: Option<String>,
+    track_ids: Option<Vec<String>>,
     progress: Channel<String>,
 ) -> Result<String, String> {
     if !valid_spotify_id(&playlist_id) {
@@ -28,7 +28,7 @@ pub async fn download_spotify_playlist(
         .join("binaries")
         .join("spotify-dl")
         .join("spotify-dl.exe");
-    if track_id.is_none() && (!cfg!(target_os = "windows") || !executable.is_file()) {
+    if track_ids.is_none() && (!cfg!(target_os = "windows") || !executable.is_file()) {
         return Err(
             "Esta edición no incluye spotify-dl. Usa la edición portable de Windows.".into(),
         );
@@ -68,17 +68,25 @@ pub async fn download_spotify_playlist(
         .await
         .map_err(|error| error.to_string())?;
 
-    let mut command = if let Some(track_id) = track_id {
-        let track = load_spotify_tracks(playlist_id)
+    if let Some(ids) = track_ids {
+        let tracks: Vec<_> = load_spotify_tracks(playlist_id)
             .await?
             .into_iter()
-            .find(|track| track.id == track_id)
-            .ok_or("La pista ya no aparece en la lista de Spotify.")?;
-        let _ = progress.send(format!("Buscando: {} · {}", track.title, track.artist));
+            .filter(|track| ids.contains(&track.id))
+            .map(|track| (track.title, track.artist))
+            .collect();
         let ytdlp = crate::ytdlp::binary::resolve_ytdlp_path_with_app(&app)
             .await
             .map_err(|error| error.to_string())?;
-        audio_search_command(&ytdlp, &track.title, &track.artist, ".spotify-archive.txt")
+        download_music_tracks(
+            tracks,
+            &ytdlp,
+            ".spotify-archive.txt",
+            &folder,
+            &search_path,
+            &progress,
+        )
+        .await?;
     } else {
         let mut command = tokio::process::Command::new(executable);
         command.arg(playlist_id).args([
@@ -89,13 +97,47 @@ pub async fn download_spotify_playlist(
             "--download-archive",
             ".spotify-archive.txt",
         ]);
-        command
-    };
-    run_music_download(&mut command, &folder, &search_path, &progress).await?;
+        run_music_download(&mut command, &folder, &search_path, &progress).await?;
+    }
     Ok(folder.to_string_lossy().into_owned())
 }
 
-pub(crate) fn audio_search_command(
+pub(crate) async fn download_music_tracks(
+    tracks: Vec<(String, String)>,
+    ytdlp: &str,
+    archive: &str,
+    folder: &std::path::Path,
+    search_path: &std::ffi::OsStr,
+    progress: &Channel<String>,
+) -> Result<(), String> {
+    let total = tracks.len();
+    if total == 0 {
+        return Err("Selecciona al menos una canción disponible.".into());
+    }
+    let mut failed = 0;
+    for (index, (title, artist)) in tracks.into_iter().enumerate() {
+        let _ = progress.send(format!(
+            "{}/{total} · Buscando: {title} · {artist}",
+            index + 1
+        ));
+        let mut command = audio_search_command(ytdlp, &title, &artist, archive);
+        if let Err(error) = run_music_download(&mut command, folder, search_path, progress).await {
+            if total == 1 {
+                return Err(error);
+            }
+            failed += 1;
+        }
+    }
+    if failed > 0 {
+        return Err(format!(
+            "No se pudieron descargar {failed} de {total} canciones. Carpeta: {}",
+            folder.display()
+        ));
+    }
+    Ok(())
+}
+
+fn audio_search_command(
     ytdlp: &str,
     title: &str,
     artist: &str,
@@ -119,7 +161,7 @@ pub(crate) fn audio_search_command(
     command
 }
 
-pub(crate) async fn run_music_download(
+async fn run_music_download(
     command: &mut tokio::process::Command,
     folder: &std::path::Path,
     search_path: &std::ffi::OsStr,

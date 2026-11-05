@@ -1,17 +1,23 @@
-<script lang="ts">
-  import { readText } from "@tauri-apps/plugin-clipboard-manager"
-  import { Channel, invoke } from "@tauri-apps/api/core"
-  import { deezerProgress } from "$lib/spotify-progress"
-
+<script module lang="ts">
   type DeezerTrack = { id: string; title: string; artist: string }
-
   let input = $state("")
   let playlistId = $state<string | null>(null)
   let message = $state("")
   let title = $state("")
   let tracks = $state<DeezerTrack[]>([])
   let tracksMessage = $state("")
+  let selectedIds = $state<string[]>([])
+  let selectWholePlaylist = $state(false)
   let loadGeneration = 0
+</script>
+
+<script lang="ts">
+  import { readText } from "@tauri-apps/plugin-clipboard-manager"
+  import TrackToggle from "$lib/components/TrackToggle.svelte"
+  import { Channel, invoke } from "@tauri-apps/api/core"
+  import { deezerProgress } from "$lib/spotify-progress"
+
+
   let downloading = $derived($deezerProgress !== null)
 
   async function loadPlaylist() {
@@ -20,6 +26,8 @@
     playlistId = null
     title = ""
     tracks = []
+    selectedIds = []
+    selectWholePlaylist = false
     tracksMessage = ""
     message = link ? "" : "Pega el enlace de una playlist pública de Deezer."
     if (!link) return
@@ -48,16 +56,28 @@
     }
   }
 
-  async function downloadPlaylist(track?: DeezerTrack) {
-    if (!playlistId || downloading) return
-    message = track ? `Buscando: ${track.title}…` : "Buscando las pistas en YouTube Music y descargando en MP3…"
+  function toggleAll() {
+    selectWholePlaylist = !selectWholePlaylist
+    selectedIds = selectWholePlaylist ? [...new Set(tracks.map((track) => track.id))] : []
+  }
+
+  function toggleTrack(id: string) {
+    selectWholePlaylist = false
+    selectedIds = selectedIds.includes(id)
+      ? selectedIds.filter((selected) => selected !== id)
+      : [...selectedIds, id]
+  }
+
+  async function downloadPlaylist() {
+    if (!playlistId || downloading || (!selectWholePlaylist && !selectedIds.length)) return
+    message = "Buscando las pistas en YouTube Music y descargando en MP3…"
     deezerProgress.set(message)
     const progress = new Channel<string>()
     progress.onmessage = (status) => deezerProgress.set(status)
     try {
       const folder = await invoke<string>("download_deezer_playlist", {
         playlistId,
-        trackId: track?.id ?? null,
+        trackIds: selectWholePlaylist ? null : [...selectedIds],
         progress,
       })
       message = `Proceso finalizado. Carpeta: ${folder}`
@@ -99,8 +119,12 @@
   {#if playlistId}
     {#if title}<h3 class="font-semibold text-yt-text">{title}</h3>{/if}
     <div class="flex flex-wrap gap-2">
-      <button type="button" disabled={downloading || tracks.length === 0} onclick={() => downloadPlaylist()} class="rounded-lg bg-yt-primary px-4 py-2 text-white disabled:opacity-50">
-        Descargar todo en MP3
+      <label class="flex items-center gap-2 text-sm text-yt-text">
+        <TrackToggle checked={selectWholePlaylist} label="Seleccionar toda la playlist" disabled={downloading} onchange={toggleAll} />
+        Seleccionar todo
+      </label>
+      <button type="button" disabled={downloading || (!selectWholePlaylist && !selectedIds.length)} onclick={downloadPlaylist} class="rounded-lg bg-yt-primary px-4 py-2 font-medium text-white disabled:opacity-50">
+        Descargar en MP3
       </button>
     </div>
     {#if tracks.length}
@@ -112,15 +136,14 @@
               <p class="font-medium text-yt-text">{track.title}</p>
               <p class="text-sm text-yt-text-secondary">{track.artist}</p>
             </div>
-            <button
-              type="button"
-              disabled={downloading}
-              aria-label={`Descargar ${track.title} en MP3`}
-              onclick={() => downloadPlaylist(track)}
-              class="shrink-0 rounded-lg border border-yt-border px-3 py-2 text-sm disabled:opacity-50"
-            >
-              Descargar
-            </button>
+            <div class="flex justify-center">
+              <TrackToggle
+                checked={selectedIds.includes(track.id)}
+                label={`Seleccionar ${track.title}`}
+                disabled={downloading}
+                onchange={() => toggleTrack(track.id)}
+              />
+            </div>
           </li>
         {/each}
       </ol>
