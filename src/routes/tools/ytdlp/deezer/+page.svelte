@@ -148,6 +148,5 @@
         {/each}
       </ol>
     {/if}
-    <p class="text-sm text-yt-text-secondary">El audio se busca en YouTube Music. Algunas coincidencias pueden corresponder a otra versión de la canción.</p>
   {/if}
 </section>

@@ -3,6 +3,7 @@
   let input = $state("")
   let playlistId = $state<string | null>(null)
   let message = $state("")
+  let title = $state("")
   let tracks = $state<SpotifyTrack[]>([])
   let tracksMessage = $state("")
   let selectedIds = $state<string[]>([])
@@ -11,8 +12,7 @@
 </script>
 
 <script lang="ts">
-  import { readText, writeText } from "@tauri-apps/plugin-clipboard-manager"
-  import { openUrl } from "@tauri-apps/plugin-opener"
+  import { readText } from "@tauri-apps/plugin-clipboard-manager"
   import TrackToggle from "$lib/components/TrackToggle.svelte"
   import { Channel, invoke } from "@tauri-apps/api/core"
   import { spotifyProgress } from "$lib/spotify-progress"
@@ -25,12 +25,12 @@
   }
 
   let downloading = $derived($spotifyProgress !== null)
-  let playlistUrl = $derived(playlistId ? `https://open.spotify.com/playlist/${playlistId}` : "")
 
   async function loadPlaylist() {
     const generation = ++loadGeneration
     const id = spotifyPlaylistId(input)
     playlistId = id
+    title = ""
     tracks = []
     selectedIds = []
     selectWholePlaylist = false
@@ -40,9 +40,10 @@
 
     tracksMessage = "Cargando canciones…"
     try {
-      const result = await invoke<SpotifyTrack[]>("load_spotify_tracks", { playlistId: id })
+      const result = await invoke<{ title: string; tracks: SpotifyTrack[] }>("load_spotify_tracks", { playlistId: id })
       if (generation !== loadGeneration) return
-      tracks = result
+      title = result.title
+      tracks = result.tracks
       tracksMessage = tracks.length ? "" : "Spotify no mostró canciones disponibles."
     } catch {
       if (generation === loadGeneration) {
@@ -92,19 +93,6 @@
     }
   }
 
-  async function openDownloader() {
-    try {
-      await writeText(playlistUrl)
-    } catch {
-      message = "Copia manualmente el enlace de la playlist para pegarlo en SpotSaver."
-    }
-
-    try {
-      await openUrl("https://spotsaver.net/es/")
-    } catch {
-      message = "No se pudo abrir SpotSaver en el navegador."
-    }
-  }
 </script>
 
 <section class="mx-auto h-full w-full max-w-4xl space-y-4 overflow-y-auto p-6">
@@ -131,6 +119,7 @@
   <p role="status" class="break-words text-sm text-yt-text-secondary">{$spotifyProgress ?? message}</p>
 
   {#if playlistId}
+    {#if title}<h3 class="break-words font-semibold text-yt-text">{title}</h3>{/if}
     <div class="flex flex-wrap gap-2">
       <label class="flex items-center gap-2 text-sm text-yt-text">
         <TrackToggle checked={selectWholePlaylist} label="Seleccionar toda la playlist" disabled={downloading} onchange={toggleAll} />
@@ -138,9 +127,6 @@
       </label>
       <button type="button" disabled={downloading || (!selectWholePlaylist && !selectedIds.length)} onclick={downloadPlaylist} class="rounded-lg bg-yt-primary px-4 py-2 font-medium text-white disabled:opacity-50">
         Descargar en MP3
-      </button>
-      <button type="button" disabled={downloading} onclick={openDownloader} class="rounded-lg border border-yt-border px-4 py-2">
-        Copiar URL y abrir SpotSaver
       </button>
     </div>
     <p class="text-sm text-yt-text-secondary" role="status">{tracksMessage}</p>
@@ -175,6 +161,5 @@
       </ol>
       </div>
     {/if}
-    <p class="text-sm text-yt-text-secondary">El audio se busca en YouTube Music. Algunas coincidencias pueden corresponder a otra versión de la canción.</p>
   {/if}
 </section>

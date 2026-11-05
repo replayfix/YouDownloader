@@ -71,6 +71,7 @@ pub async fn download_spotify_playlist(
     if let Some(ids) = track_ids {
         let tracks: Vec<_> = load_spotify_tracks(playlist_id)
             .await?
+            .tracks
             .into_iter()
             .filter(|track| ids.contains(&track.id))
             .map(|track| (track.title, track.artist))
@@ -240,7 +241,7 @@ pub struct SpotifyTrack {
 
 #[tauri::command]
 #[specta::specta]
-pub async fn load_spotify_tracks(playlist_id: String) -> Result<Vec<SpotifyTrack>, String> {
+pub async fn load_spotify_tracks(playlist_id: String) -> Result<SpotifyPlaylist, String> {
     if !valid_spotify_id(&playlist_id) {
         return Err("El identificador de la playlist no es válido.".into());
     }
@@ -261,11 +262,18 @@ pub async fn load_spotify_tracks(playlist_id: String) -> Result<Vec<SpotifyTrack
         .ok_or(error)?;
     let (payload, _) = payload.split_once("</script>").ok_or(error)?;
     let data: serde_json::Value = serde_json::from_str(payload).map_err(|_| error)?;
-    let tracks = data
-        .pointer("/props/pageProps/state/data/entity/trackList")
+    let entity = data
+        .pointer("/props/pageProps/state/data/entity")
+        .ok_or(error)?;
+    let title = entity["title"]
+        .as_str()
+        .or_else(|| entity["name"].as_str())
+        .unwrap_or("Playlist de Spotify")
+        .to_owned();
+    let tracks = entity["trackList"]
         .and_then(serde_json::Value::as_array)
         .ok_or(error)?;
-    Ok(tracks
+    let tracks = tracks
         .iter()
         .filter_map(|track| {
             let id = track["uri"].as_str()?.strip_prefix("spotify:track:")?;
@@ -281,7 +289,14 @@ pub async fn load_spotify_tracks(playlist_id: String) -> Result<Vec<SpotifyTrack
                     .and_then(|milliseconds| u32::try_from(milliseconds / 1000).ok()),
             })
         })
-        .collect())
+        .collect();
+    Ok(SpotifyPlaylist { title, tracks })
+}
+
+#[derive(serde::Serialize, specta::Type)]
+pub struct SpotifyPlaylist {
+    title: String,
+    tracks: Vec<SpotifyTrack>,
 }
 
 #[derive(serde::Deserialize)]
